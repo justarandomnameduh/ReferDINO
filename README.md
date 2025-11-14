@@ -154,9 +154,11 @@ Our code is built upon [ReferFormer](https://github.com/wjn922/ReferFormer), [SO
 If you find our work helpful for your research, please consider citing our paper.
 ```bibtex
 @inproceedings{liang2025referdino,
-    title={ReferDINO: Referring Video Object Segmentation with Visual Grounding Foundations},
-    author={Liang, Tianming and Lin, Kun-Yu and Tan, Chaolei and Zhang, Jianguo and Zheng, Wei-Shi and Hu, Jian-Fang},
-    booktitle={Proceedings of the IEEE/CVF International Conference on Computer Vision},
-    year={2025}
+    author    = {Liang, Tianming and Lin, Kun-Yu and Tan, Chaolei and Zhang, Jianguo and Zheng, Wei-Shi and Hu, Jian-Fang},
+    title     = {ReferDINO: Referring Video Object Segmentation with Visual Grounding Foundations},
+    booktitle = {Proceedings of the IEEE/CVF International Conference on Computer Vision (ICCV)},
+    month     = {October},
+    year      = {2025},
+    pages     = {20009-20019}
 }
 ```
