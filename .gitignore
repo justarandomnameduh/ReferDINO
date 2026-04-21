@@ -1,0 +1,8 @@
+__pycache__/
+*.py[cod]
+ckpt/
+pretrained/
+data/
+output/
+*.log
+*.out

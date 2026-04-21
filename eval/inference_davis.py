@@ -48,6 +48,39 @@ transform = T.Compose([
     T.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
 ])
 
+GREEN_MASK_COLOR = np.array([0, 255, 0], dtype=np.float32)
+MASK_ALPHA = 0.5
+
+
+def ensure_dir(path):
+    os.makedirs(path, exist_ok=True)
+
+
+def create_video_writer(path, frame_size, fps):
+    ensure_dir(os.path.dirname(path))
+    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+    writer = cv2.VideoWriter(path, fourcc, fps, frame_size)
+    if not writer.isOpened():
+        raise RuntimeError(f"Failed to create video writer for {path}")
+    return writer
+
+
+def write_overlay_video(video_path, img_folder, video_name, frames, masks, fps):
+    video_writer = None
+    try:
+        for frame_name, mask in zip(frames, masks):
+            img_path = os.path.join(img_folder, video_name, frame_name + ".jpg")
+            source_img = Image.open(img_path).convert('RGB')
+            overlay_frame = vis_add_mask(source_img, mask, GREEN_MASK_COLOR, alpha=MASK_ALPHA)
+            overlay_bgr = cv2.cvtColor(np.asarray(overlay_frame), cv2.COLOR_RGB2BGR)
+            if video_writer is None:
+                frame_h, frame_w = overlay_bgr.shape[:2]
+                video_writer = create_video_writer(video_path, (frame_w, frame_h), fps)
+            video_writer.write(overlay_bgr)
+    finally:
+        if video_writer is not None:
+            video_writer.release()
+
 
 def main(args):
     print("Inference only supports for batch size = 1")
@@ -77,7 +110,17 @@ def main(args):
     meta_file = os.path.join(root, "meta_expressions", split, "meta_expressions.json")
     with open(meta_file, "r") as f:
         data = json.load(f)["videos"]
-    video_list = list(data.keys())
+
+    ordered_videos = list(data.keys())
+    if args.video_first_n > 0:
+        ordered_videos = ordered_videos[:args.video_first_n]
+        data = {video: data[video] for video in ordered_videos}
+
+    video_list = ordered_videos
+    render_video_sources = set(ordered_videos[:args.overlay_video_first_n]) if args.overlay_video_first_n > 0 else set()
+    overlay_video_path_prefix = os.path.join(save_dir, "overlay_videos")
+    if render_video_sources:
+        ensure_dir(overlay_video_path_prefix)
 
     # create subprocess
     thread_num = args.num_gpus
@@ -98,6 +141,7 @@ def main(args):
             sub_video_list = video_list[i * per_thread_video_num: (i + 1) * per_thread_video_num]
         p = mp.Process(target=sub_processor, args=(lock, i, args, data, 
                                                    output_dir, save_visualize_path_prefix,
+                                                   overlay_video_path_prefix, render_video_sources,
                                                    img_folder, sub_video_list, result_dict))
         p.start()
         processes.append(p)
@@ -117,7 +161,8 @@ def main(args):
     print("\nSave results at: {}".format(output_dir))
 
 
-def sub_processor(lock, pid, args, data, save_path_prefix, save_visualize_path_prefix, img_folder, video_list, result_dict):
+def sub_processor(lock, pid, args, data, save_path_prefix, save_visualize_path_prefix,
+                  overlay_video_path_prefix, render_video_sources, img_folder, video_list, result_dict):
     text = 'processor %d' % pid
     with lock:
         progress = tqdm(
@@ -170,6 +215,7 @@ def sub_processor(lock, pid, args, data, save_path_prefix, save_visualize_path_p
     for idx_, video in enumerate(video_list):
         torch.cuda.empty_cache()
         metas = []
+        render_overlay_video = video in render_video_sources
         expressions = data[video]["expressions"]
         expression_list = list(expressions.keys())
         num_expressions = len(expression_list)
@@ -193,6 +239,7 @@ def sub_processor(lock, pid, args, data, save_path_prefix, save_visualize_path_p
             anno_masks = []
             anno_boxes = []
             anno_text = []
+            anno_exp_ids = []
 
             for obj_id in range(num_obj):
                 i = obj_id * 4 + anno_id
@@ -249,6 +296,7 @@ def sub_processor(lock, pid, args, data, save_path_prefix, save_visualize_path_p
                 anno_masks.append(pred_masks)
                 anno_boxes.append(pred_boxes)
                 anno_text.append(exp)
+                anno_exp_ids.append(exp_id)
 
             # Handle a complete image (all objects of an annotator)
             anno_logits = torch.stack(anno_logits)  # [num_obj, video_len, k]
@@ -261,9 +309,12 @@ def sub_processor(lock, pid, args, data, save_path_prefix, save_visualize_path_p
             out_masks = torch.argmax(anno_masks, dim=0)  # int, the value indicates which object, [video_len, h, w]
             out_masks = out_masks.detach().cpu().numpy().astype(np.uint8)  # [video_len, h, w]
 
+            anno_masks_np = None
+            if args.visualize or render_overlay_video:
+                anno_masks_np = (anno_masks > 0.5).detach().cpu().numpy()
+
             if args.visualize:
-                anno_masks = (anno_masks>0.5).detach().cpu().numpy()
-                for j, (mask, box, text) in enumerate(zip(anno_masks[1:], anno_boxes, anno_text)):
+                for j, (mask, box, text) in enumerate(zip(anno_masks_np[1:], anno_boxes, anno_text)):
                     for t in range(video_len):
                         frame = frames[t]
                         img_path = os.path.join(img_folder, video_name, frame + ".jpg")
@@ -290,6 +341,23 @@ def sub_processor(lock, pid, args, data, save_path_prefix, save_visualize_path_p
                         if not os.path.exists(save_visualize_path):
                             os.makedirs(save_visualize_path)
                         source_img.save(os.path.join(save_visualize_path, '{:05d}.png'.format(t)))
+
+            if render_overlay_video:
+                for j, mask in enumerate(anno_masks_np[1:]):
+                    overlay_video_path = os.path.join(
+                        overlay_video_path_prefix,
+                        f"anno_{anno_id}",
+                        video,
+                        f"exp_{anno_exp_ids[j]}.mp4",
+                    )
+                    write_overlay_video(
+                        overlay_video_path,
+                        img_folder,
+                        video_name,
+                        frames,
+                        mask,
+                        args.overlay_video_fps,
+                    )
 
             # save results
             anno_save_path = os.path.join(save_path_prefix, f"anno_{anno_id}", video)
@@ -343,15 +411,15 @@ def draw_sample_points(draw, sample_points, img_size, color_list):
             draw.ellipse((x-2, y-2, x+2, y+2), 
                             fill=tuple(cur_color), outline=tuple(cur_color), width=1)
 
-def vis_add_mask(img, mask, color):
-    origin_img = np.asarray(img.convert('RGB')).copy()
-    color = np.array(color)
+def vis_add_mask(img, mask, color, alpha=0.5):
+    origin_img = np.asarray(img.convert('RGB')).copy().astype(np.float32)
+    color = np.asarray(color, dtype=np.float32)
 
     mask = mask.reshape(mask.shape[0], mask.shape[1]).astype('uint8') # np
     mask = mask > 0.5
 
-    origin_img[mask] = origin_img[mask] * 0.5 + color * 0.5
-    origin_img = Image.fromarray(origin_img)
+    origin_img[mask] = origin_img[mask] * (1 - alpha) + color * alpha
+    origin_img = Image.fromarray(origin_img.astype(np.uint8))
     return origin_img
 
   
@@ -369,6 +437,10 @@ if __name__ == '__main__':
     parser.add_argument('--num_gpus', '-ng', type=int, required=True,
                         help='number of CUDA gpus to run on. mutually exclusive with \'gpu_ids\'')
     parser.add_argument("--device", default="cuda")
+    parser.add_argument("--video_first_n", default=0, type=int, help="0 indicates use the full dataset")
+    parser.add_argument("--overlay_video_first_n", default=0, type=int,
+                        help="0 disables overlay video export")
+    parser.add_argument("--overlay_video_fps", default=10, type=int)
     args = parser.parse_args()
     with open(args.config_path) as f:
         yaml = YAML(typ='safe', pure=True)

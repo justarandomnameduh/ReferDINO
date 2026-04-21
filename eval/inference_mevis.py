@@ -43,6 +43,22 @@ transform = T.Compose([
     T.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
 ])
 
+GREEN_MASK_COLOR = np.array([0, 255, 0], dtype=np.float32)
+MASK_ALPHA = 0.5
+
+
+def ensure_dir(path):
+    os.makedirs(path, exist_ok=True)
+
+
+def create_video_writer(path, frame_size, fps):
+    ensure_dir(os.path.dirname(path))
+    fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+    writer = cv2.VideoWriter(path, fourcc, fps, frame_size)
+    if not writer.isOpened():
+        raise RuntimeError(f"Failed to create video writer for {path}")
+    return writer
+
 
 def main(args):
     print("Inference only supports for batch size = 1")
@@ -72,6 +88,18 @@ def main(args):
     meta_file = os.path.join(root, split, "meta_expressions.json")
     with open(meta_file, "r") as f:
         data = json.load(f)["videos"]
+
+    ordered_source_videos = list(data.keys())
+    if args.video_first_n > 0:
+        selected_source_videos = ordered_source_videos[:args.video_first_n]
+        data = {video: data[video] for video in selected_source_videos}
+        ordered_source_videos = selected_source_videos
+
+    render_video_sources = set(ordered_source_videos[:args.overlay_video_first_n]) \
+        if args.overlay_video_first_n > 0 else set()
+    overlay_video_path_prefix = os.path.join(save_dir, 'overlay_videos')
+    if render_video_sources:
+        ensure_dir(overlay_video_path_prefix)
 
     if args.subset_size > 0:
         new_data = {}
@@ -110,6 +138,7 @@ def main(args):
             sub_video_list = video_list[i * per_thread_video_num: (i + 1) * per_thread_video_num]
         p = mp.Process(target=sub_processor, args=(lock, i, args, data,
                                                    output_dir, save_visualize_path_prefix,
+                                                   overlay_video_path_prefix, render_video_sources,
                                                    img_folder, sub_video_list))
         p.start()
         processes.append(p)
@@ -139,7 +168,8 @@ def main(args):
         print("\nSave results at: {}".format(output_dir))
 
 
-def sub_processor(lock, pid, args, data, save_path_prefix, save_visualize_path_prefix, img_folder, video_list):
+def sub_processor(lock, pid, args, data, save_path_prefix, save_visualize_path_prefix,
+                  overlay_video_path_prefix, render_video_sources, img_folder, video_list):
     text = 'processor %d' % pid
     with lock:
         progress = tqdm(
@@ -207,6 +237,7 @@ def sub_processor(lock, pid, args, data, save_path_prefix, save_visualize_path_p
         # store images
         frames = data[video]["frames"]
         video_name = video.split('_')[0]
+        render_overlay_video = video_name in render_video_sources
         imgs = []
         for t in range(video_len):
             frame = frames[t]
@@ -254,11 +285,35 @@ def sub_processor(lock, pid, args, data, save_path_prefix, save_visualize_path_p
             pred_masks = pred_masks.sum(dim=1).clamp(max=1).numpy()  # [t, h, w]
             color = color_list[0]
 
-            if args.visualize:
+            video_writer = None
+            if render_overlay_video:
+                overlay_video_path = os.path.join(
+                    overlay_video_path_prefix,
+                    video_name,
+                    f"exp_{exp_id}.mp4",
+                )
+
+            if args.visualize or render_overlay_video:
                 for t, frame in enumerate(frames):
-                    # original
                     img_path = os.path.join(img_folder, video_name, frame + '.jpg')
-                    source_img = Image.open(img_path).convert('RGBA')  # PIL image
+                    source_rgb = Image.open(img_path).convert('RGB')
+
+                    if render_overlay_video:
+                        overlay_frame = vis_add_mask(source_rgb, pred_masks[t], GREEN_MASK_COLOR, alpha=MASK_ALPHA)
+                        overlay_bgr = cv2.cvtColor(np.asarray(overlay_frame), cv2.COLOR_RGB2BGR)
+                        if video_writer is None:
+                            frame_h, frame_w = overlay_bgr.shape[:2]
+                            video_writer = create_video_writer(
+                                overlay_video_path,
+                                (frame_w, frame_h),
+                                args.overlay_video_fps,
+                            )
+                        video_writer.write(overlay_bgr)
+
+                    if not args.visualize:
+                        continue
+
+                    source_img = source_rgb.convert('RGBA')
 
                     draw = ImageDraw.Draw(source_img)
                     for pred_box in pred_boxes[t]:
@@ -283,6 +338,8 @@ def sub_processor(lock, pid, args, data, save_path_prefix, save_visualize_path_p
                         os.makedirs(save_visualize_path_dir)
                     save_visualize_path = os.path.join(save_visualize_path_dir, frame + '.png')
                     source_img.save(save_visualize_path)
+            if video_writer is not None:
+                video_writer.release()
             # save binary image
             save_path = os.path.join(save_path_prefix, video_name, exp_id)
             if not os.path.exists(save_path):
@@ -316,15 +373,15 @@ def rescale_bboxes(out_bbox, size):
 
 
 # Visualization functions
-def vis_add_mask(img, mask, color):
-    origin_img = np.asarray(img.convert('RGB')).copy()
-    color = np.array(color)
+def vis_add_mask(img, mask, color, alpha=0.5):
+    origin_img = np.asarray(img.convert('RGB')).copy().astype(np.float32)
+    color = np.asarray(color, dtype=np.float32)
 
     mask = mask.reshape(mask.shape[0], mask.shape[1]).astype('uint8')  # np
     mask = mask > 0.5
 
-    origin_img[mask] = origin_img[mask] * 0.5 + color * 0.5
-    origin_img = Image.fromarray(origin_img)
+    origin_img[mask] = origin_img[mask] * (1 - alpha) + color * alpha
+    origin_img = Image.fromarray(origin_img.astype(np.uint8))
     return origin_img
 
 
@@ -347,6 +404,10 @@ if __name__ == '__main__':
     parser.add_argument("--tracking_alpha", default=0.1, type=float)
     parser.add_argument("--top1", action='store_true')
     parser.add_argument("--subset_size", default=0, type=int, help="0 indicates use the full video")
+    parser.add_argument("--video_first_n", default=0, type=int, help="0 indicates use the full dataset")
+    parser.add_argument("--overlay_video_first_n", default=0, type=int,
+                        help="0 disables overlay video export")
+    parser.add_argument("--overlay_video_fps", default=10, type=int)
     args = parser.parse_args()
     with open(args.config_path) as f:
         yaml = YAML(typ='safe', pure=True)
