@@ -95,8 +95,12 @@ def main(args):
         data = {video: data[video] for video in selected_source_videos}
         ordered_source_videos = selected_source_videos
 
-    render_video_sources = set(ordered_source_videos[:args.overlay_video_first_n]) \
-        if args.overlay_video_first_n > 0 else set()
+    if args.overlay_video_first_n < 0:
+        render_video_sources = set(ordered_source_videos)
+    elif args.overlay_video_first_n > 0:
+        render_video_sources = set(ordered_source_videos[:args.overlay_video_first_n])
+    else:
+        render_video_sources = set()
     overlay_video_path_prefix = os.path.join(save_dir, 'overlay_videos')
     if render_video_sources:
         ensure_dir(overlay_video_path_prefix)
@@ -406,7 +410,7 @@ if __name__ == '__main__':
     parser.add_argument("--subset_size", default=0, type=int, help="0 indicates use the full video")
     parser.add_argument("--video_first_n", default=0, type=int, help="0 indicates use the full dataset")
     parser.add_argument("--overlay_video_first_n", default=0, type=int,
-                        help="0 disables overlay video export")
+                        help="0 disables overlay video export, -1 exports overlays for all selected videos")
     parser.add_argument("--overlay_video_fps", default=10, type=int)
     args = parser.parse_args()
     with open(args.config_path) as f:

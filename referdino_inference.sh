@@ -26,7 +26,9 @@ Options:
   --version NAME              Output version name. Default: $VERSION
   --mevis-split NAME          MeViS split. Default: $MEVIS_SPLIT
   --num-gpus N                Number of GPUs/processes. Default: $NUM_GPUS
-  --overlay-video-first-n N   Number of overlay videos to export. Default: $OVERLAY_VIDEO_FIRST_N
+  --overlay-video-first-n N   Number of overlay videos to export. Use -1 for all selected videos.
+                              Default: $OVERLAY_VIDEO_FIRST_N
+  --overlay-video-all         Export overlay videos for all selected videos.
   --skip-ckpt                 Skip checkpoint download step.
   --skip-prepare              Skip dataset layout preparation.
   -h, --help                  Show this help.
@@ -82,6 +84,10 @@ while [[ $# -gt 0 ]]; do
     --overlay-video-first-n)
       OVERLAY_VIDEO_FIRST_N="$2"
       shift 2
+      ;;
+    --overlay-video-all)
+      OVERLAY_VIDEO_FIRST_N="-1"
+      shift
       ;;
     --skip-ckpt)
       RUN_CKPT=0
