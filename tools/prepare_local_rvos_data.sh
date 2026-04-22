@@ -12,6 +12,10 @@ Usage: bash tools/prepare_local_rvos_data.sh [--dataset-root /absolute/path/to/d
 
 Builds the local ReferDINO data layout for DAVIS and MeViS from the sibling
 dataset tree used by the outer segmentation repo.
+
+For inference-only DAVIS reproduction, `davis17/train` is optional. When it is
+missing, the script still prepares the `valid` split and metadata required by
+`eval/inference_davis.py`.
 EOF
 }
 
@@ -45,6 +49,10 @@ replace_with_symlink() {
   rm -rf "$dst"
   mkdir -p "$(dirname "$dst")"
   ln -s "$src" "$dst"
+}
+
+warn() {
+  echo "Warning: $*" >&2
 }
 
 extract_split_images() {
@@ -82,13 +90,16 @@ prepare_mevis_split() {
   replace_with_symlink "$src_dir/$meta_name" "$dst_dir/meta_expressions.json"
 }
 
-require_path "$DATASET_ROOT/davis17/train"
 require_path "$DATASET_ROOT/davis17/valid"
-require_path "$DATASET_ROOT/davis17/meta_expressions"
+require_path "$DATASET_ROOT/davis17/meta_expressions/valid/meta_expressions.json"
 require_path "$DATASET_ROOT/davis17_raw/DAVIS"
 
 mkdir -p "$REPO_ROOT/data"
-replace_with_symlink "$DATASET_ROOT/davis17/train" "$REPO_ROOT/data/ref_davis/train"
+if [[ -e "$DATASET_ROOT/davis17/train" ]]; then
+  replace_with_symlink "$DATASET_ROOT/davis17/train" "$REPO_ROOT/data/ref_davis/train"
+else
+  warn "Skipping DAVIS train split because $DATASET_ROOT/davis17/train is missing. This is fine for inference-only reproduction."
+fi
 replace_with_symlink "$DATASET_ROOT/davis17/valid" "$REPO_ROOT/data/ref_davis/valid"
 replace_with_symlink "$DATASET_ROOT/davis17/meta_expressions" "$REPO_ROOT/data/ref_davis/meta_expressions"
 replace_with_symlink "$DATASET_ROOT/davis17_raw/DAVIS" "$REPO_ROOT/data/ref_davis/DAVIS"
