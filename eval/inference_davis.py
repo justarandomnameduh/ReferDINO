@@ -56,6 +56,12 @@ def ensure_dir(path):
     os.makedirs(path, exist_ok=True)
 
 
+def write_manifest(path, entries):
+    ensure_dir(os.path.dirname(path))
+    with open(path, "w", encoding="utf-8") as handle:
+        json.dump(entries, handle, indent=2)
+
+
 def create_video_writer(path, frame_size, fps):
     ensure_dir(os.path.dirname(path))
     fourcc = cv2.VideoWriter_fourcc(*"mp4v")
@@ -209,10 +215,6 @@ def sub_processor(lock, pid, args, data, save_path_prefix, save_visualize_path_p
     else:
         raise ValueError('Please specify the checkpoint for inference.')
 
-    # get palette
-    palette_img = os.path.join(args.dataset_path, "valid/Annotations/blackswan/00000.png")
-    palette = Image.open(palette_img).getpalette()
-
     # start inference
     num_all_frames = 0
     model.eval()
@@ -235,6 +237,11 @@ def sub_processor(lock, pid, args, data, save_path_prefix, save_visualize_path_p
             meta["frames"] = data[video]["frames"]
             metas.append(meta)
         meta = metas
+        annotation_manifest = [[os.path.join(item["exp_id"]), item["exp"]] for item in meta]
+        overlay_manifest = [[f"exp_{item['exp_id']}.mp4", item["exp"]] for item in meta]
+        write_manifest(os.path.join(save_path_prefix, video, "manifest.json"), annotation_manifest)
+        if render_overlay_video:
+            write_manifest(os.path.join(overlay_video_path_prefix, video, "manifest.json"), overlay_manifest)
 
         # Since there are 4 annotations
         num_obj = num_expressions // 4
@@ -303,6 +310,13 @@ def sub_processor(lock, pid, args, data, save_path_prefix, save_visualize_path_p
                 anno_text.append(exp)
                 anno_exp_ids.append(exp_id)
 
+                exp_save_path = os.path.join(save_path_prefix, video_name, exp_id)
+                ensure_dir(exp_save_path)
+                pred_masks_np = (pred_masks > 0.5).detach().cpu().numpy().astype(np.uint8)
+                for frame_idx, frame_name in enumerate(frames):
+                    mask = Image.fromarray(pred_masks_np[frame_idx] * 255).convert("L")
+                    mask.save(os.path.join(exp_save_path, frame_name + ".png"))
+
             # Handle a complete image (all objects of an annotator)
             anno_logits = torch.stack(anno_logits)  # [num_obj, video_len, k]
             anno_masks = torch.stack(anno_masks)  # [num_obj, video_len, h, w]
@@ -311,8 +325,6 @@ def sub_processor(lock, pid, args, data, save_path_prefix, save_visualize_path_p
             anno_masks[anno_masks < 0.5] = 0.0
             background = 0.1 * torch.ones(1, t, h, w).to(args.device)
             anno_masks = torch.cat([background, anno_masks], dim=0)  # [num_obj+1, video_len, h, w]
-            out_masks = torch.argmax(anno_masks, dim=0)  # int, the value indicates which object, [video_len, h, w]
-            out_masks = out_masks.detach().cpu().numpy().astype(np.uint8)  # [video_len, h, w]
 
             anno_masks_np = None
             if args.visualize or render_overlay_video:
@@ -351,7 +363,6 @@ def sub_processor(lock, pid, args, data, save_path_prefix, save_visualize_path_p
                 for j, mask in enumerate(anno_masks_np[1:]):
                     overlay_video_path = os.path.join(
                         overlay_video_path_prefix,
-                        f"anno_{anno_id}",
                         video,
                         f"exp_{anno_exp_ids[j]}.mp4",
                     )
@@ -363,15 +374,6 @@ def sub_processor(lock, pid, args, data, save_path_prefix, save_visualize_path_p
                         mask,
                         args.overlay_video_fps,
                     )
-
-            # save results
-            anno_save_path = os.path.join(save_path_prefix, f"anno_{anno_id}", video)
-            if not os.path.exists(anno_save_path):
-                os.makedirs(anno_save_path)
-            for f in range(out_masks.shape[0]):
-                img_E = Image.fromarray(out_masks[f])
-                img_E.putpalette(palette)
-                img_E.save(os.path.join(anno_save_path, '{:05d}.png'.format(f)))
 
         with lock:
             progress.update(1)

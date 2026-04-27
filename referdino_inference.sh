@@ -242,12 +242,10 @@ targets = {
 }
 
 davis_rows = []
+davis_eval_root = os.path.join(output_root, "davis", version, "eval_davis", "val")
 for anno_idx in range(4):
     csv_path = os.path.join(
-        output_root,
-        "davis",
-        version,
-        "Annotations",
+        davis_eval_root,
         f"anno_{anno_idx}",
         "global_results-val.csv",
     )
@@ -380,6 +378,7 @@ lines.extend(
         "## Artifacts",
         "",
         f"- DAVIS predictions: `{os.path.join(output_root, 'davis', version, 'Annotations')}`",
+        f"- DAVIS evaluation artifacts: `{davis_eval_root}`",
         f"- DAVIS overlays: `{os.path.join(output_root, 'davis', version, 'overlay_videos')}`",
         f"- MeViS predictions: `{os.path.join(output_root, 'mevis', version, mevis_split, 'Annotations')}`",
         f"- MeViS overlays: `{os.path.join(output_root, 'mevis', version, mevis_split, 'overlay_videos')}`",

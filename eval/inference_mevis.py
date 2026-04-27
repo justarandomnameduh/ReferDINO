@@ -51,6 +51,12 @@ def ensure_dir(path):
     os.makedirs(path, exist_ok=True)
 
 
+def write_manifest(path, entries):
+    ensure_dir(os.path.dirname(path))
+    with open(path, "w", encoding="utf-8") as handle:
+        json.dump(entries, handle, indent=2)
+
+
 def create_video_writer(path, frame_size, fps):
     ensure_dir(os.path.dirname(path))
     fourcc = cv2.VideoWriter_fourcc(*"mp4v")
@@ -228,6 +234,8 @@ def sub_processor(lock, pid, args, data, save_path_prefix, save_visualize_path_p
         expression_list = list(expressions.keys())
         num_expressions = len(expression_list)
         video_len = len(data[video]["frames"])
+        video_name = video.split('_')[0]
+        render_overlay_video = video_name in render_video_sources
 
         # read all the anno meta
         for i in range(num_expressions):
@@ -237,11 +245,14 @@ def sub_processor(lock, pid, args, data, save_path_prefix, save_visualize_path_p
             meta["frames"] = data[video]["frames"]
             metas.append(meta)
         meta = metas
+        annotation_manifest = [[os.path.join(item["exp_id"]), item["exp"]] for item in meta]
+        overlay_manifest = [[f"exp_{item['exp_id']}.mp4", item["exp"]] for item in meta]
+        write_manifest(os.path.join(save_path_prefix, video_name, "manifest.json"), annotation_manifest)
+        if render_overlay_video:
+            write_manifest(os.path.join(overlay_video_path_prefix, video_name, "manifest.json"), overlay_manifest)
 
         # store images
         frames = data[video]["frames"]
-        video_name = video.split('_')[0]
-        render_overlay_video = video_name in render_video_sources
         imgs = []
         for t in range(video_len):
             frame = frames[t]

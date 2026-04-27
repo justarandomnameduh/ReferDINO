@@ -193,7 +193,15 @@ DAVIS overlay videos:
   - `bmx-trees`
   - `breakdance`
   - `camel`
-- layout: `anno_<annotator>/<video>/exp_<exp_id>.mp4`
+- layout: `<video>/exp_<exp_id>.mp4`
+- each `<video>` folder also contains `manifest.json` entries of `[relative_path, query]`
+
+DAVIS predictions:
+
+- root: `output/davis/swinb_repro/Annotations/`
+- layout: `<video>/<exp_id>/<frame>.png`
+- each `<video>` folder also contains `manifest.json` entries of `[relative_path, query]`
+- DAVIS evaluator composites and CSVs are written under `output/davis/swinb_repro/eval_davis/val/`
 
 MeViS overlay videos:
 
@@ -205,6 +213,7 @@ MeViS overlay videos:
   - `16ae95660b3a`
   - `3dde46eaaf53`
 - layout: `<video>/exp_<exp_id>.mp4`
+- each `<video>` folder also contains `manifest.json` entries of `[relative_path, query]`
 
 ## 10. Notes
 
