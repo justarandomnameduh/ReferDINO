@@ -8,7 +8,7 @@ DATASET_ROOT="$DEFAULT_DATASET_ROOT"
 
 usage() {
   cat <<'EOF'
-Usage: bash tools/prepare_local_rvos_data.sh [--dataset-root /absolute/path/to/dataset]
+Usage: bash tools/prepare_local_rvos_data.sh [--dataset-root /path/to/dataset]
 
 Builds the local ReferDINO data layout for DAVIS and MeViS from the sibling
 dataset tree used by the outer segmentation repo.
@@ -37,6 +37,8 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+
+DATASET_ROOT="$(cd "$DATASET_ROOT" && pwd)"
 
 require_path() {
   local path="$1"

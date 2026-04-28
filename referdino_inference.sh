@@ -107,6 +107,9 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+DATASET_ROOT="$(cd "$DATASET_ROOT" && pwd)"
+OUTPUT_ROOT="$(mkdir -p "$OUTPUT_ROOT" && cd "$OUTPUT_ROOT" && pwd)"
+
 cd "$REPO_ROOT"
 export PYTHONPATH="$REPO_ROOT${PYTHONPATH:+:$PYTHONPATH}"
 
