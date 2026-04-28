@@ -1,6 +1,7 @@
 import argparse
 import json
 import random
+import sys
 import time
 from pathlib import Path
 
@@ -31,6 +32,14 @@ from ruamel.yaml import YAML
 from easydict import EasyDict
 from torch.cuda.amp import autocast
 from misc import nested_tensor_from_videos_list
+from pycocotools import mask as cocomask
+from tools.mevis.metrics import db_eval_boundary, db_eval_iou
+
+SEGMENTATION_ROOT = Path(__file__).resolve().parents[2]
+if str(SEGMENTATION_ROOT) not in sys.path:
+    sys.path.insert(0, str(SEGMENTATION_ROOT))
+
+from generate_overlays import generate_overlay_video, plot_frame_metrics
 
 # colormap
 color_list = utils.colormap()
@@ -64,6 +73,36 @@ def create_video_writer(path, frame_size, fps):
     if not writer.isOpened():
         raise RuntimeError(f"Failed to create video writer for {path}")
     return writer
+
+
+def save_mevis_metric_plot(pred_masks, frames, gt_data, anno_ids, query, output_path):
+    gt_masks = np.zeros_like(pred_masks, dtype=np.uint8)
+    for frame_idx, _ in enumerate(frames):
+        for anno_id in anno_ids:
+            mask_rle = gt_data[str(anno_id)][frame_idx]
+            if mask_rle:
+                gt_masks[frame_idx] += cocomask.decode(mask_rle)
+    j_scores = db_eval_iou(gt_masks, pred_masks)
+    f_scores = db_eval_boundary(gt_masks, pred_masks)
+    plot_frame_metrics(list(range(len(frames))), [float(x) for x in j_scores], [float(x) for x in f_scores], query, output_path)
+
+
+def generate_mevis_overlays(data, annotation_root, img_folder, overlay_root, video_sources, fps):
+    video_source_set = set(video_sources)
+    for video in data:
+        video_name = video.split('_')[0]
+        if video_name not in video_source_set:
+            continue
+        expressions = data[video]["expressions"]
+        for exp_id, exp_meta in expressions.items():
+            generate_overlay_video(
+                os.path.join(img_folder, video_name),
+                os.path.join(annotation_root, video_name, exp_id),
+                os.path.join(overlay_root, video_name),
+                query=exp_meta["exp"],
+                output_name=f"exp_{exp_id}.mp4",
+                fps=fps,
+            )
 
 
 def main(args):
@@ -102,11 +141,11 @@ def main(args):
         ordered_source_videos = selected_source_videos
 
     if args.overlay_video_first_n < 0:
-        render_video_sources = set(ordered_source_videos)
+        render_video_sources = ordered_source_videos
     elif args.overlay_video_first_n > 0:
-        render_video_sources = set(ordered_source_videos[:args.overlay_video_first_n])
+        render_video_sources = ordered_source_videos[:args.overlay_video_first_n]
     else:
-        render_video_sources = set()
+        render_video_sources = []
     overlay_video_path_prefix = os.path.join(save_dir, 'overlay_videos')
     if render_video_sources:
         ensure_dir(overlay_video_path_prefix)
@@ -166,6 +205,16 @@ def main(args):
 
     print("Total inference time: %.4f s" % (total_time))
     print("\nSave results at: {}".format(output_dir))
+    if render_video_sources:
+        print("Generating MeViS overlay videos...")
+        generate_mevis_overlays(
+            data,
+            output_dir,
+            img_folder,
+            overlay_video_path_prefix,
+            render_video_sources,
+            args.overlay_video_fps,
+        )
 
     if split == "valid":
         print('creating a zip file with the predictions...')
@@ -224,6 +273,11 @@ def sub_processor(lock, pid, args, data, save_path_prefix, save_visualize_path_p
     # start inference
     num_all_frames = 0
     model.eval()
+    gt_data = None
+    if args.split == "valid_u":
+        gt_path = os.path.join(args.dataset_path, args.split, "mask_dict.json")
+        with open(gt_path, "r") as handle:
+            gt_data = json.load(handle)
 
     # 1. For each video
     for video in video_list:
@@ -235,7 +289,6 @@ def sub_processor(lock, pid, args, data, save_path_prefix, save_visualize_path_p
         num_expressions = len(expression_list)
         video_len = len(data[video]["frames"])
         video_name = video.split('_')[0]
-        render_overlay_video = video_name in render_video_sources
 
         # read all the anno meta
         for i in range(num_expressions):
@@ -248,7 +301,7 @@ def sub_processor(lock, pid, args, data, save_path_prefix, save_visualize_path_p
         annotation_manifest = [[os.path.join(item["exp_id"]), item["exp"]] for item in meta]
         overlay_manifest = [[f"exp_{item['exp_id']}.mp4", item["exp"]] for item in meta]
         write_manifest(os.path.join(save_path_prefix, video_name, "manifest.json"), annotation_manifest)
-        if render_overlay_video:
+        if video_name in render_video_sources:
             write_manifest(os.path.join(overlay_video_path_prefix, video_name, "manifest.json"), overlay_manifest)
 
         # store images
@@ -300,33 +353,10 @@ def sub_processor(lock, pid, args, data, save_path_prefix, save_visualize_path_p
             pred_masks = pred_masks.sum(dim=1).clamp(max=1).numpy()  # [t, h, w]
             color = color_list[0]
 
-            video_writer = None
-            if render_overlay_video:
-                overlay_video_path = os.path.join(
-                    overlay_video_path_prefix,
-                    video_name,
-                    f"exp_{exp_id}.mp4",
-                )
-
-            if args.visualize or render_overlay_video:
+            if args.visualize:
                 for t, frame in enumerate(frames):
                     img_path = os.path.join(img_folder, video_name, frame + '.jpg')
                     source_rgb = Image.open(img_path).convert('RGB')
-
-                    if render_overlay_video:
-                        overlay_frame = vis_add_mask(source_rgb, pred_masks[t], GREEN_MASK_COLOR, alpha=MASK_ALPHA)
-                        overlay_bgr = cv2.cvtColor(np.asarray(overlay_frame), cv2.COLOR_RGB2BGR)
-                        if video_writer is None:
-                            frame_h, frame_w = overlay_bgr.shape[:2]
-                            video_writer = create_video_writer(
-                                overlay_video_path,
-                                (frame_w, frame_h),
-                                args.overlay_video_fps,
-                            )
-                        video_writer.write(overlay_bgr)
-
-                    if not args.visualize:
-                        continue
 
                     source_img = source_rgb.convert('RGBA')
 
@@ -353,8 +383,6 @@ def sub_processor(lock, pid, args, data, save_path_prefix, save_visualize_path_p
                         os.makedirs(save_visualize_path_dir)
                     save_visualize_path = os.path.join(save_visualize_path_dir, frame + '.png')
                     source_img.save(save_visualize_path)
-            if video_writer is not None:
-                video_writer.release()
             # save binary image
             save_path = os.path.join(save_path_prefix, video_name, exp_id)
             if not os.path.exists(save_path):
@@ -365,6 +393,15 @@ def sub_processor(lock, pid, args, data, save_path_prefix, save_visualize_path_p
                 mask = Image.fromarray(mask * 255).convert('L')
                 save_file = os.path.join(save_path, frame_name + ".png")
                 mask.save(save_file)
+            if args.split == "valid_u":
+                save_mevis_metric_plot(
+                    pred_masks.astype(np.uint8),
+                    frames,
+                    gt_data,
+                    data[video]["expressions"][exp_id]["anno_id"],
+                    exp,
+                    os.path.join(args.output_dir, "visualize", args.dataset_name, args.version, video_name, f"{exp_id}.png"),
+                )
 
         with lock:
             progress.update(1)
@@ -420,7 +457,7 @@ if __name__ == '__main__':
     parser.add_argument("--top1", action='store_true')
     parser.add_argument("--subset_size", default=0, type=int, help="0 indicates use the full video")
     parser.add_argument("--video_first_n", default=0, type=int, help="0 indicates use the full dataset")
-    parser.add_argument("--overlay_video_first_n", default=0, type=int,
+    parser.add_argument("--overlay_video_first_n", default=-1, type=int,
                         help="0 disables overlay video export, -1 exports overlays for all selected videos")
     parser.add_argument("--overlay_video_fps", default=10, type=int)
     args = parser.parse_args()

@@ -9,7 +9,7 @@ OUTPUT_ROOT="${OUTPUT_ROOT:-$REPO_ROOT/output}"
 VERSION="${VERSION:-swinb_repro}"
 MEVIS_SPLIT="${MEVIS_SPLIT:-valid_u}"
 NUM_GPUS="${NUM_GPUS:-1}"
-OVERLAY_VIDEO_FIRST_N="${OVERLAY_VIDEO_FIRST_N:-5}"
+OVERLAY_VIDEO_FIRST_N="${OVERLAY_VIDEO_FIRST_N:--1}"
 RUN_CKPT=1
 RUN_PREPARE=1
 
@@ -242,7 +242,7 @@ targets = {
 }
 
 davis_rows = []
-davis_eval_root = os.path.join(output_root, "davis", version, "eval_davis", "val")
+davis_eval_root = os.path.join(output_root, "davis", version, "Annotations")
 for anno_idx in range(4):
     csv_path = os.path.join(
         davis_eval_root,

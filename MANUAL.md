@@ -182,38 +182,32 @@ Small deviations are acceptable. Focus on `J`, `F`, and `J&F`.
 
 ## 9. Overlay-video outputs
 
-The inference runs above also export green mask-overlay MP4s for the first 5 source videos of each dataset.
+The inference runs above export green mask-overlay MP4s. Use `--overlay_video_first_n 0`
+to disable MP4 export, a positive number for a prefix subset, or `-1` for all selected videos.
 
 DAVIS overlay videos:
 
 - root: `output/davis/swinb_repro/overlay_videos/`
-- first 5 source videos:
-  - `bike-packing`
-  - `blackswan`
-  - `bmx-trees`
-  - `breakdance`
-  - `camel`
 - layout: `<video>/exp_<exp_id>.mp4`
 - each `<video>` folder also contains `manifest.json` entries of `[relative_path, query]`
 
 DAVIS predictions:
 
 - root: `output/davis/swinb_repro/Annotations/`
-- layout: `<video>/<exp_id>/<frame>.png`
-- each `<video>` folder also contains `manifest.json` entries of `[relative_path, query]`
-- DAVIS evaluator composites and CSVs are written under `output/davis/swinb_repro/eval_davis/val/`
+- layout: `anno_<annotator>/<video>/<frame>.png`
+- DAVIS evaluation CSVs are written in each `anno_<annotator>` folder.
 
 MeViS overlay videos:
 
 - root: `output/mevis/swinb_repro/valid_u/overlay_videos/`
-- first 5 source videos:
-  - `d56a6ec78cfa`
-  - `377b1c5f365c`
-  - `8a3ceef4f248`
-  - `16ae95660b3a`
-  - `3dde46eaaf53`
 - layout: `<video>/exp_<exp_id>.mp4`
 - each `<video>` folder also contains `manifest.json` entries of `[relative_path, query]`
+
+Metric plots:
+
+- root: `output/visualize/<dataset>/swinb_repro/<video>/`
+- layout: `<exp_id>.png`
+- each PNG contains per-frame `J`, `F`, and `J&F` lines titled by the query expression.
 
 ## 10. Notes
 
