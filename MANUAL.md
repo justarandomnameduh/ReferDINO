@@ -2,17 +2,17 @@
 
 This handoff is designed for Bunya because the local workstation does not expose a GPU. The commands below assume:
 
-- repo root: `/home/uqqnguy9/phd/segmentation`
-- inner ReferDINO repo: `/home/uqqnguy9/phd/segmentation/ReferDINO`
-- sibling dataset root: `/home/uqqnguy9/phd/dataset`
+- repo root: `/scratch/user/uqqnguy9/segmentation`
+- inner ReferDINO repo: `/scratch/user/uqqnguy9/segmentation/ReferDINO`
+- sibling dataset root: `/scratch/user/uqqnguy9/dataset`
 
 ## 1. Pull the latest code
 
 ```bash
-cd /home/uqqnguy9/phd/segmentation
+cd /scratch/user/uqqnguy9/segmentation
 git pull
 
-cd /home/uqqnguy9/phd/segmentation/ReferDINO
+cd /scratch/user/uqqnguy9/segmentation/ReferDINO
 git pull
 ```
 
@@ -38,7 +38,7 @@ If your site workflow requires modules, load them before the Python setup.
 ## 3. Create the ReferDINO environment
 
 ```bash
-cd /home/uqqnguy9/phd/segmentation/ReferDINO
+cd /scratch/user/uqqnguy9/segmentation/ReferDINO
 
 conda create -n referdino python=3.10 -y
 conda activate referdino
@@ -53,13 +53,13 @@ Build the deformable attention extension:
 cd models/GroundingDINO/ops
 python setup.py build install
 python test.py
-cd /home/uqqnguy9/phd/segmentation/ReferDINO
+cd /scratch/user/uqqnguy9/segmentation/ReferDINO
 ```
 
 ## 4. Download the required checkpoints
 
 ```bash
-cd /home/uqqnguy9/phd/segmentation/ReferDINO
+cd /scratch/user/uqqnguy9/segmentation/ReferDINO
 bash ckpt.sh
 ```
 
@@ -74,8 +74,8 @@ If Bunya cannot download from the internet, place those files manually in the sa
 ## 5. Prepare the local dataset layout
 
 ```bash
-cd /home/uqqnguy9/phd/segmentation/ReferDINO
-bash tools/prepare_local_rvos_data.sh --dataset-root /home/uqqnguy9/phd/dataset
+cd /scratch/user/uqqnguy9/segmentation/ReferDINO
+bash tools/prepare_local_rvos_data.sh --dataset-root /scratch/user/uqqnguy9/dataset
 ```
 
 This builds the ReferDINO runtime layout under `ReferDINO/data/` from the sibling dataset tree and normalizes MeViS metadata names.
@@ -85,7 +85,7 @@ This builds the ReferDINO runtime layout under `ReferDINO/data/` from the siblin
 DAVIS smoke test:
 
 ```bash
-cd /home/uqqnguy9/phd/segmentation/ReferDINO
+cd /scratch/user/uqqnguy9/segmentation/ReferDINO
 conda activate referdino
 
 PYTHONPATH=. python eval/inference_davis.py \
@@ -100,7 +100,7 @@ PYTHONPATH=. python eval/inference_davis.py \
 MeViS smoke test:
 
 ```bash
-cd /home/uqqnguy9/phd/segmentation/ReferDINO
+cd /scratch/user/uqqnguy9/segmentation/ReferDINO
 conda activate referdino
 
 PYTHONPATH=. python eval/inference_mevis.py \
@@ -116,7 +116,7 @@ PYTHONPATH=. python eval/inference_mevis.py \
 ## 7. Run the full DAVIS reproduction
 
 ```bash
-cd /home/uqqnguy9/phd/segmentation/ReferDINO
+cd /scratch/user/uqqnguy9/segmentation/ReferDINO
 conda activate referdino
 
 PYTHONPATH=. python eval/inference_davis.py \
@@ -130,7 +130,7 @@ PYTHONPATH=. python eval/inference_davis.py \
 Evaluate DAVIS:
 
 ```bash
-cd /home/uqqnguy9/phd/segmentation/ReferDINO
+cd /scratch/user/uqqnguy9/segmentation/ReferDINO
 conda activate referdino
 
 PYTHONPATH=. python eval/eval_davis.py \
@@ -148,7 +148,7 @@ Paper target for comparison:
 Use `valid_u`, because that is the split with public GT required by `eval_mevis.py`.
 
 ```bash
-cd /home/uqqnguy9/phd/segmentation/ReferDINO
+cd /scratch/user/uqqnguy9/segmentation/ReferDINO
 conda activate referdino
 
 PYTHONPATH=. python eval/inference_mevis.py \
@@ -163,7 +163,7 @@ PYTHONPATH=. python eval/inference_mevis.py \
 Evaluate MeViS:
 
 ```bash
-cd /home/uqqnguy9/phd/segmentation/ReferDINO
+cd /scratch/user/uqqnguy9/segmentation/ReferDINO
 conda activate referdino
 
 PYTHONPATH=. python eval/eval_mevis.py \
